@@ -73,23 +73,3 @@ class CityscapesDataset(Dataset):
 
     
         return image, y, self.XImg_list[index], self.yLabel_list[index]
-
-        # frame = Image.open(video_path+'/'+frame_name)
-        # # vid_frame = cv2.imread(video_path+'/'+frame_name)
-        # # cv2.imshow("img", vid_frame)
-        # # cv2.waitKey(0) 
-        # # cv2.destroyAllWindows()
-        # # frame = vid_frame.copy()
-        # frame = [frame]
-        # # frame = Image.fromarray(frame)
-        # # print(type(frame))
-        # # frame.show()
-        # frame = transforms.ToTensor()(frame)
-        # # print(type(frame))
-        # frame = frame.to(device)
-        # segmentations = rt_predict(model, frame)
-        # if segmentations is not None:
-        #     fr = segmentations.copy()
-        #     alpha = 0.3
-        #     # cv2.addWeighted(fr, alpha, )
-        #     video_output.write(segmentations)
