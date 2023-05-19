@@ -1,21 +1,21 @@
 from tqdm import tqdm
-from utils.utils import mIOU
 import torch
 import os
 import matplotlib.pyplot as plt
+from utils.utils import dice_score
+from utils.utils import mIOU
 
 
 def train(model, device, train_loader, optimizer, loss_function):
-    running_loss = 0.0
-    running_mIOU = 0.0
+    current_loss = 0.0
+    current_IOU = 0.0
 
     for batch in tqdm(train_loader):
+        dice = 0
         # image, labels, _, _ = batch
-        image, labels,_,_ = batch
-        # print(torch.unique(labels))
+        image, labels = batch
         # print(torch.unique(labels))
         image, labels = image.to(device), labels.to(device)
-    #     # # print(torch.max(labels), torch.min(labels))
         
         prediction = model(image)
         # print('prediction shape: ',prediction.shape)
@@ -28,53 +28,69 @@ def train(model, device, train_loader, optimizer, loss_function):
         # plt.subplot(1, 2, 2)
         # plt.imshow(labels[0].cpu().detach().numpy())
         # plt.show()
+        dice += dice_score(prediction, labels)
         optimizer.zero_grad()
         loss = 0.8*loss_function(prediction, labels)  - 0.2*mIOU(labels, prediction)
         loss.backward()
         optimizer.step()
 
-        running_loss += loss.item()*image.size(0)
-        running_mIOU += mIOU(labels, prediction)
+        current_loss += loss.item()*image.size(0)
+        current_IOU += mIOU(labels, prediction)
 
-    # calculate average loss
-    running_loss = running_loss/len(train_loader)
-    running_mIOU = running_mIOU/len(train_loader)
-    return running_loss, running_mIOU
+    current_loss = current_loss/len(train_loader)
+    current_IOU = current_IOU/len(train_loader)
+    dice = dice/(len(train_loader))
+    return current_loss, current_IOU, dice
 
 
   
 def evaluate(model, data_loader, device, loss_function):
-    running_loss = 0.0
-    running_mIOU = 0.0
+    current_loss = 0.0
+    current_IOU = 0.0
+    dice = 0.0
     with torch.no_grad():
         model.eval()
-        for image, labels, _, _ in data_loader:
+        for image, labels in data_loader:
             image, labels = image.to(device), labels.to(device)
             prediction = model(image)
-            loss = 0.8*loss_function(prediction, labels)  - 0.2*mIOU(labels, prediction) 
-            running_loss += loss.item()*image.size(0)
-            running_mIOU += mIOU(labels, prediction)
-        running_loss = running_loss/len(data_loader)
-        running_mIOU = running_mIOU/len(data_loader)
-
-    return running_loss, running_mIOU
+            loss = 0.8*loss_function(prediction, labels)  - 0.2*mIOU(labels, prediction)
+            dice += dice_score(prediction, labels) 
+            current_loss += loss.item()*image.size(0)
+            current_IOU += mIOU(labels, prediction)
+        current_loss = current_loss/len(data_loader)
+        current_IOU = current_IOU/len(data_loader)
+        dice = dice/(len(data_loader))
+    return current_loss, current_IOU, dice
 
 def train_model(num_epochs, model, device, train_loader, optimizer, loss_function,  save_path, scheduler = None, val_loader = None):
-    print("Start training...")
+    loss_graph_train = []
+    miou_graph_train = []
+    loss_graph_val = []
+    miou_graph_val = []
+    dice_train_scores = []
+    dice_val_scores = []
     model = model.to(device)
-    for epoch in range(1, num_epochs):
+    for epoch in range(1, num_epochs+1):
         torch.cuda.empty_cache()
         model.train()
-        print("Starting Epoch "+str(epoch))
-        train_loss, running_mIOU = train(model, device, train_loader, optimizer, loss_function)
-        val_loss, val_mIOU = evaluate(model, val_loader, device, loss_function)
+        print("Epoch "+str(epoch))
+        train_loss, running_mIOU, dice_train = train(model, device, train_loader, optimizer, loss_function)
+        loss_graph_train.append(train_loss)
+        miou_graph_train.append(running_mIOU)
+        dice_train_scores.append(dice_train)
+        val_loss, val_mIOU, dice_val = evaluate(model, val_loader, device, loss_function)
+        loss_graph_val.append(val_loss)
+        miou_graph_val.append(val_mIOU)
+        dice_val_scores.append(dice_val)
         if scheduler is not None:
 
             scheduler.step(val_loss)
         
-        print('Epoch [{}/{}], Train Loss: {:.4f}, Train IOU: {:.4f}, Val Loss: {:.4f}, Val IOU: {:.4f}'.format(epoch, num_epochs, train_loss, running_mIOU, val_loss, val_mIOU))
+        print(f'Epoch [{epoch}/{num_epochs}], Train Loss: {train_loss:.4f}, Train IOU: {running_mIOU:.4f}, Train Dice Loss: {dice_train},Val Loss: {val_loss:.4f}, Val IOU: {val_mIOU:.4f}, Val Dice Score: {dice_val:.4f}')
         if epoch%10 == 0:
             save_checkpoint(save_path=save_path, model=model, optimizer=optimizer, val_loss=0, epoch=epoch)
+    return loss_graph_train, miou_graph_train, dice_train_scores, loss_graph_val, miou_graph_val, dice_val_scores
+
 
 def save_checkpoint(save_path, model, optimizer, val_loss, epoch):
 

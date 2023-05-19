@@ -44,20 +44,16 @@ class EfficientMultiHeadAttention(nn.Module):
     def forward(self, x):
         _, _, h, w = x.shape
         reduced_x = self.reducer(x)
-        # attention needs tensor of shape (batch, sequence_length, channels)
         reduced_x = rearrange(reduced_x, "b c h w -> b (h w) c")
         x = rearrange(x, "b c h w -> b (h w) c")
         out = self.att(x, reduced_x, reduced_x)[0]
-        # reshape it back to (batch, channels, height, width)
         out = rearrange(out, "b (h w) c -> b c h w", h=h, w=w)
         return out
 
 class MixMLP(nn.Sequential):
     def __init__(self, channels: int, expansion: int = 4):
         super().__init__(
-            # dense layer
             nn.Conv2d(channels, channels, kernel_size=1),
-            # depth wise conv
             nn.Conv2d(
                 channels,
                 channels * expansion,
@@ -66,12 +62,10 @@ class MixMLP(nn.Sequential):
                 padding=1,
             ),
             nn.GELU(),
-            # dense layer
             nn.Conv2d(channels * expansion, channels, kernel_size=1),
         )
 
 class ResidualAdd(nn.Module):
-    """Just an util layer"""
     def __init__(self, fn):
         super().__init__()
         self.fn = fn
@@ -134,9 +128,6 @@ class SegFormerEncoderStage(nn.Sequential):
         self.norm = LayerNorm2d(out_channels)
 
 def chunks(data: Iterable, sizes: List[int]):
-    """
-    Given an iterable, returns slices using sizes as indices
-    """
     curr = 0
     for size in sizes:
         chunk = data[curr: curr + size]
@@ -157,7 +148,6 @@ class SegFormerEncoder(nn.Module):
         drop_prob: float = .0
     ):
         super().__init__()
-        # create drop paths probabilities (one for each stage's block)
         drop_probs =  [x.item() for x in torch.linspace(0, drop_prob, sum(depths))]
         self.stages = nn.ModuleList(
             [
@@ -196,6 +186,8 @@ class SegFormerDecoder(nn.Module):
         self.stages = nn.ModuleList(
             [
                 SegFormerDecoderBlock(in_channels, out_channels, scale_factor)
+                # SegFormerDecoderBlock(in_channels, out_channels)
+                # for in_channels in widths[::-1]
                 for in_channels, scale_factor in zip(widths, scale_factors)
             ]
         )
@@ -212,7 +204,7 @@ class SegFormerSegmentationHead(nn.Module):
         super().__init__()
         self.fuse = nn.Sequential(
             nn.Conv2d(channels * num_features, channels, kernel_size=1, bias=False),
-            nn.ReLU(), 
+            nn.ReLU(),
             nn.BatchNorm2d(channels)
         )
         self.predict = nn.Conv2d(channels, num_classes, kernel_size=1)
@@ -261,3 +253,18 @@ class SegFormer(nn.Module):
         features = self.decoder(features[::-1])
         segmentation = self.head(features)
         return segmentation
+
+
+# segformer = SegFormer(
+#     in_channels=3,
+#     widths=[64, 128, 256, 512],
+#     depths=[3, 4, 6, 3],
+#     all_num_heads=[1, 2, 4, 8],
+#     patch_sizes=[7, 3, 3, 3],
+#     overlap_sizes=[4, 2, 2, 2],
+#     reduction_ratios=[8, 4, 2, 1],
+#     mlp_expansions=[4, 4, 4, 4],
+#     decoder_channels=256,
+#     scale_factors=[8, 4, 2, 1],
+#     num_classes=19,
+# )
